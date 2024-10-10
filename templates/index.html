@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Comments Sentiment Analysis</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        #progress-bar {
+            width: 100%;
+            background-color: #ddd;
+            border-radius: 5px;
+            display: none;
+            margin-top: 10px;
+        }
+        #progress {
+            width: 0%;
+            height: 30px;
+            background-color: #4caf50;
+            text-align: center;
+            line-height: 30px;
+            color: white;
+            border-radius: 5px;
+        }
+        .charts-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+        }
+        .chart-wrapper {
+            flex: 1;
+            min-width: 300px;
+            margin: 20px;
+        }
+        #top-comments {
+            list-style-type: none;
+            padding: 0;
+        }
+        #top-comments li {
+            background: #fff;
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 5px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.1);
+        }
+        #sentiment-summary {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        #download-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            display: none; /* Hide initially */
+        }
+    </style>
+</head>
+<body>
+    <h1>YouTube Comments Sentiment Analysis</h1>
+    <form id="analyze-form">
+        <label for="video_url">YouTube Video URL:</label>
+        <input type="text" id="video_url" name="video_url" required>
+
+        <label for="comment_count">Number of Comments to Fetch (Max 800):</label>
+        <input type="number" id="comment_count" name="comment_count" min="1" max="800" value="800">
+
+        <input type="submit" value="Analyze">
+    </form>
+
+    <div id="progress-bar">
+        <div id="progress">0%</div>
+    </div>
+    <div id="sentiment-summary"></div>
+    <h2 id="sentiment-title"></h2>
+    <ul id="top-comments"></ul>
+
+    <div class="charts-container">
+        <div class="chart-wrapper">
+            <h2>Sentiment Distribution:</h2>
+            <canvas id="sentimentPieChart"></canvas>
+        </div>
+        <div class="chart-wrapper">
+            <h2>Sentiment Count:</h2>
+            <canvas id="sentimentBarChart"></canvas>
+        </div>
+    </div>
+
+    <button id="download-button">Download PDF</button>
+
+    <!-- External JS libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script>
+        $('#analyze-form').on('submit', function(e) {
+            e.preventDefault();
+            $('#progress-bar').show();
+            $('#progress').css('width', '0%').text('0%');
+            $('#sentiment-summary').text('');
+            $('#download-button').hide(); // Hide the download button until analysis is done
+
+            var video_url = $('#video_url').val();
+            var comment_count = $('#comment_count').val();
+            $.ajax({
+                url: '/analyze',
+                type: 'POST',
+                data: { video_url: video_url, comment_count: comment_count },
+                xhr: function() {
+                    var xhr = new window.XMLHttpRequest();
+                    xhr.upload.addEventListener('progress', function(evt) {
+                        if (evt.lengthComputable) {
+                            var percentComplete = evt.loaded / evt.total;
+                            percentComplete = parseInt(percentComplete * 100);
+                            $('#progress').css('width', percentComplete + '%').text(percentComplete + '%');
+                        }
+                    }, false);
+                    return xhr;
+                },
+                success: function(data) {
+                    if (data.error) {
+                        alert(data.error);
+                    } else {
+                        var totalComments = data.positive_count + data.negative_count + data.neutral_count;
+                        var positivePercentage = ((data.positive_count / totalComments) * 100).toFixed(2);
+                        var negativePercentage = ((data.negative_count / totalComments) * 100).toFixed(2);
+                        var neutralPercentage = ((data.neutral_count / totalComments) * 100).toFixed(2);
+
+                        $('#sentiment-summary').text(
+                            'This video has received a ' + data.sentiment + ' response (' +
+                            positivePercentage + '% positive, ' +
+                            negativePercentage + '% negative, ' +
+                            neutralPercentage + '% neutral).'
+                        );
+
+                        $('#sentiment-title').text('Top ' + data.sentiment.charAt(0).toUpperCase() + data.sentiment.slice(1) + ' Comments:');
+                        $('#top-comments').empty();
+                        data.top_comments.forEach(function(comment, index) {
+                            $('#top-comments').append('<li>' + (index + 1) + '. ' + comment + '</li>');
+                        });
+                        $('#progress').css('width', '100%').text('100%');
+
+                        // Show the download button after the analysis is done
+                        $('#download-button').show();
+
+                        // Pie chart
+                        var ctxPie = document.getElementById('sentimentPieChart').getContext('2d');
+                        var pieChart = new Chart(ctxPie, {
+                            type: 'pie',
+                            data: {
+                                labels: ['Positive', 'Negative', 'Neutral'],
+                                datasets: [{
+                                    data: [data.positive_count, data.negative_count, data.neutral_count],
+                                    backgroundColor: ['#4caf50', '#f44336', '#9e9e9e']
+                                }]
+                            }
+                        });
+
+                        // Bar chart
+                        var ctxBar = document.getElementById('sentimentBarChart').getContext('2d');
+                        var barChart = new Chart(ctxBar, {
+                            type: 'bar',
+                            data: {
+                                labels: ['Positive', 'Negative', 'Neutral'],
+                                datasets: [{
+                                    label: 'Sentiment Count',
+                                    data: [data.positive_count, data.negative_count, data.neutral_count],
+                                    backgroundColor: ['#4caf50', '#f44336', '#9e9e9e']
+                                }]
+                            },
+                            options: {
+                                scales: {
+                                    y: {
+                                        beginAtZero: true
+                                    }
+                                }
+                            }
+                        });
+
+                        // Download PDF on button click
+                        $('#download-button').off('click').on('click', function() {
+                            var doc = new jspdf.jsPDF(); 
+
+                            // Capture the sentiment summary
+                            doc.setFontSize(12);
+                            doc.text(20, 20, $('#sentiment-summary').text());
+
+                            // Capture the top comments
+                            doc.setFontSize(18);
+                            doc.text(20, 40, 'Top Comments:');
+
+                            doc.setFontSize(14);
+                            $('#top-comments li').each(function(index, comment) {
+                                doc.text(20, 50 + (index * 10), (index + 1) + '. ' + $(comment).text());
+                            });
+
+                            // Capture the pie chart
+                            html2canvas(document.getElementById('sentimentPieChart')).then(function(canvas) {
+                                var imgData = canvas.toDataURL('image/png');
+                                doc.addImage(imgData, 'PNG', 20, 100, 100, 100);
+
+                                // Capture the bar chart
+                                html2canvas(document.getElementById('sentimentBarChart')).then(function(canvas) {
+                                    var imgData = canvas.toDataURL('image/png');
+                                    doc.addImage(imgData, 'PNG', 20, 200, 100, 100);
+
+                                    // Save the PDF
+                                    doc.save('sentiment_analysis.pdf');
+                                });
+                            });
+                        });
+                    }
+                },
+                error: function() {
+                    alert('An error occurred while processing the request.');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
